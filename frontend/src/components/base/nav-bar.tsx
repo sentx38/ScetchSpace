@@ -19,9 +19,7 @@ import {useSession} from "next-auth/react";
 import {CustomUser} from "@/app/api/auth/[...nextauth]/authOptions";
 
 export default function NavBar() {
-
-
-    const [categories, setCategories] = useState<{ id: number; title: string; code: string }[]>([]);
+    const [categories, setCategories] = useState<CategoriesType[]>([]);
     const { data } = useSession();
     const user = data?.user as CustomUser ;
 

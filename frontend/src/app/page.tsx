@@ -9,7 +9,7 @@ export default async function App() {
 
   return (
 		<div className="p-5">
-			App PAge
+			App Page
 			<Button>Click Me</Button>
 			<p>{JSON.stringify(session)}</p>
 

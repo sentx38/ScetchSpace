@@ -2,7 +2,6 @@ import React, {useEffect, useState} from "react";
 import {
     Dialog,
     DialogContent,
-    DialogDescription,
     DialogHeader,
     DialogTitle,
     DialogTrigger,
@@ -26,13 +25,31 @@ import {useSession} from "next-auth/react";
 import {CustomUser} from "@/app/api/auth/[...nextauth]/authOptions";
 import {fetchCategories} from "@/dateFetch/categoryFetch";
 
+import myAxios from "@/lib/axios.config";
+import {MODEL_URL} from "@/lib/apiEndPoints";
+import {useToast} from "@/hooks/use-toast";
+
 
 
 export default function AddModel() {
-    const [open, setOpen] = useState(false);
-    const [categories, setCategories] = useState<{ id: number; title: string; code: string }[]>([]);
+    const { toast } = useToast();
     const { data } = useSession();
-    const user = data?.user as CustomUser ;
+    const user = data?.user as CustomUser;
+    const [open, setOpen] = useState(false);
+    const [loading, setLoading] = useState(false);
+    const [categories, setCategories] = useState<CategoriesType[]>([]);
+    const [modelState, setModelState] = useState<IModelFormState>({
+        title: "",
+        description: "",
+        file: null,
+        preview_image_url: null,
+        price: 0,
+        category_id: 0,
+        end_date: null,
+        texture_url: null,
+        model_fbx: null,
+    });
+    const [errors, setErrors] = useState<IValidationErrors>({});
 
     useEffect(() => {
         const getCategories = async () => {
@@ -44,16 +61,74 @@ export default function AddModel() {
 
         getCategories();
     }, [user]);
-    const [modelState, setModelState] = useState({
-        title: "",
-        description: "",
-        file: null as File | null, // Архив модели (ZIP)
-        preview_image_url: "", // Для маленькой картинки карточки
-        price: 0,
-        category_id: 0, // Изначально 0, будет обновляться списком
-        end_date: "",
-        texture_url: "", // URL текстуры модели
-        model_fbx: null as File | null, // FBX-модель вместо URL
+
+    const handleSubmit = (event: React.FormEvent) => {
+        event.preventDefault();
+        setLoading(true);
+
+        const formData = new FormData();
+        formData.append("title", modelState.title);
+        formData.append("description", modelState.description);
+        formData.append("price", modelState.price.toString());
+        formData.append("category_id", modelState.category_id.toString());
+        // Форматируем дату в формате YYYY-MM-DD
+        if (modelState.end_date) {
+            const year = modelState.end_date.getFullYear();
+            const month = String(modelState.end_date.getMonth() + 1).padStart(2, '0'); // Месяцы начинаются с 0
+            const day = String(modelState.end_date.getDate()).padStart(2, '0');
+            const formattedDate = `${year}-${month}-${day}`;
+            formData.append("end_date", formattedDate);
+        }
+        if (modelState.file) formData.append("file", modelState.file);
+        if (modelState.preview_image_url) formData.append("preview_image_url", modelState.preview_image_url);
+        if (modelState.texture_url) formData.append("texture_url", modelState.texture_url);
+        if (modelState.model_fbx) formData.append("model_fbx", modelState.model_fbx);
+
+        myAxios
+            .post(MODEL_URL, formData, {
+                headers: {
+                    "Authorization": `Bearer ${user?.token}`,
+                },
+            })
+            .then((res) => {
+                setLoading(false);
+                setModelState({
+                    title: "",
+                    description: "",
+                    file: null,
+                    preview_image_url: null,
+                    price: 0,
+                    category_id: 0,
+                    end_date: null,
+                    texture_url: null,
+                    model_fbx: null,
+                });
+                setErrors({});
+                setOpen(false);
+                toast({
+                    variant: "success",
+                    description: "Модель успешно добавлена!"});
+            })
+            .catch((err) => {
+                setLoading(false);
+                if (err.response?.status === 422) {
+                    setErrors(err.response?.data?.errors || {});
+                } else {
+                    toast({
+                        variant: "destructive",
+                        description:"Что-то пошло не так. Пожалуйста попробуйте заново позже!"})
+                }
+            });
+    };
+
+    console.log("Отправляемые данные:", {
+        title: modelState.title,
+        description: modelState.description,
+        price: modelState.price,
+        category_id: modelState.category_id,
+        end_date: modelState.end_date,
+        preview_image_url: modelState.preview_image_url,
+        model_fbx: modelState.model_fbx,
     });
 
     return (
@@ -68,11 +143,7 @@ export default function AddModel() {
                 <DialogHeader>
                     <DialogTitle>Добавить модель</DialogTitle>
                 </DialogHeader>
-                <form>
-                    <div className="mb-2">
-                        <Label htmlFor="file" className="label">Архив модели (ZIP, RAR)</Label>
-                        <Input type="file" accept=".zip,.rar" className="input"/>
-                    </div>
+                <form onSubmit={handleSubmit}>
                     <div className="mb-2">
                         <Label htmlFor="title" className="label">Название</Label>
                         <Input
@@ -81,6 +152,7 @@ export default function AddModel() {
                             onChange={(e) => setModelState({...modelState, title: e.target.value})}
                             type="text" placeholder="Введите название модели.."
                             className="input"/>
+                        <span className="text-red-400">{errors.title?.[0]}</span>
                     </div>
                     <div className="mb-2">
                         <Label htmlFor="description" className="label">Описание</Label>
@@ -92,6 +164,7 @@ export default function AddModel() {
                             rows={5}
                             className="textarea">
                         </Textarea>
+                        <span className="text-red-400">{errors.description?.[0]}</span>
                     </div>
                     <div className="mb-2">
                         <Label htmlFor="price" className="label">Цена</Label>
@@ -104,31 +177,59 @@ export default function AddModel() {
                             min="0" className="input"
                             disabled={true}
                         />
-                    </div>
-                    <div className="flex justify-between space-x-5 items-center mb-2">
-                        <Label htmlFor="category_id" className="label">Категория</Label>
-                        <Select>
-                            <SelectTrigger className="w-[220px]">
-                                <SelectValue placeholder="Выберите категорию" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectGroup>
-                                    <SelectLabel>Категории</SelectLabel>
-                                    {categories.map((category) => (
-                                        <SelectItem key={category.code} value={category.code}>
-                                            {category.title}
-                                        </SelectItem>
-                                    ))}
-                                </SelectGroup>
-                            </SelectContent>
-                        </Select>
-                    </div>
-                    <div className="flex justify-between space-x-5 items-center mb-2">
-                        <Label htmlFor="end_date">Дата окончания</Label>
-                        <DatePicker/>
+                        <span className="text-red-400">{errors.price?.[0]}</span>
                     </div>
                     <div className="mb-2">
-                        <Label htmlFor="texture_url" className="label">URL текстуры модели</Label>
+                        <div className="flex justify-between space-x-5 items-center">
+                            <Label htmlFor="category_id" className="label">Категория</Label>
+                            <Select onValueChange={(value) => setModelState({ ...modelState, category_id: Number(value) })} // Преобразуйте значение в число
+                                    value={modelState.category_id?.toString() || ""}> {/* Преобразуйте в строку для отображения */}
+                                <SelectTrigger className="w-[220px]">
+                                    <SelectValue placeholder="Выберите категорию" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectGroup>
+                                        <SelectLabel>Категории</SelectLabel>
+                                        {categories.map((category) => (
+                                            <SelectItem key={category.code} value={category.id.toString()}>
+                                                {category.title}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectGroup>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <span className="text-red-400">{errors.category_id?.[0]}</span>
+                    </div>
+                    <div className=" mb-2">
+                        <div className="flex justify-between space-x-5 items-center">
+                            <Label htmlFor="end_date">Дата окончания</Label>
+                            <DatePicker
+                                date={modelState.end_date}
+                                setDate={(date) => setModelState({ ...modelState, end_date: date || null })}
+                            />
+                        </div>
+                        <span className="text-red-400">{errors.end_date?.[0]}</span>
+                    </div>
+
+                    <div className="mb-2">
+                        <Label htmlFor="preview_image_url">Превью изображения</Label>
+                        <Input
+                            type="file"
+                            accept="image/png,image/jpg,image/jpeg"
+                            onChange={(e) =>
+                                setModelState({ ...modelState, preview_image_url: e.target.files?.[0] || null })
+                            }
+                        />
+                        <span className="text-red-400">{errors.preview_image_url?.[0]}</span>
+                    </div>
+
+                    <div className="mb-2">
+                        <Label htmlFor="file" className="label">Архив модели (ZIP, RAR)</Label>
+                        <Input type="file" accept=".zip,.rar" className="input"/>
+                    </div>
+                    <div className="mb-2">
+                        <Label htmlFor="texture_url" className="label">Текстура модели</Label>
                         <Input
                             type="file"
                             className="input"
@@ -137,7 +238,12 @@ export default function AddModel() {
                     </div>
                     <div className="mb-6">
                         <Label htmlFor="model_fbx" className="label">FBX-модель</Label>
-                        <Input type="file" accept=".fbx" className="input"/>
+                        <Input
+                            type="file"
+                            accept=".fbx"
+                            className="input"
+                            onChange={(e) => setModelState({ ...modelState, model_fbx: e.target.files?.[0] || null })}
+                        />
                     </div>
                     <div >
                         <Button variant="destructive" type="submit" className="button w-full">Отправить</Button>
